@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('medbikri:server');
+var http = require('http');
+const { search } = require('../routes');
+require('dotenv').config();
+var axios = require('axios');
+var Video = require('../models/video');
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', searchYT);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+async function searchYT(){
+  setInterval(async () =>{
+    search(0);
+  },10000)
+  async function search(k){
+    let j=0;
+    api_key = process.env.API_KEY;
+    api_keys = api_key.split("_");
+    let response
+    try{
+    response = await axios.get(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=25&q=meditation&key=${api_keys[k]}`);
+    for(let e of response.data.items){
+      try{
+        let video1 = await Video.find({videoID: e.id.videoId}, {_id: 1}).limit(1).size();
+        console.log(video1);
+        if(video1.length == 0){
+        let video = new Video({
+          title: e.snippet.title,
+          description: e.snippet.description,
+          publishTime: e.snippet.publishedAt,
+          videoID: e.id.videoId,
+          thumbnails: {
+            default: e.snippet.thumbnails.default.url,
+            medium: e.snippet.thumbnails.medium.url,
+            high: e.snippet.thumbnails.high.url,
+          },
+          channelTitle: e.snippet.channelTitle
+        })
+        video.save();
+        console.log("Saved Video to DB");
+      }
+      else{
+        console.log("Video already in DB");
+      }
+    }
+      catch(e){
+        console.log("Error Writing to DB");
+      }
+    }
+    }
+    catch(err){
+      j++;
+      if(j>=api_keys.length){
+        console.log("No more API Keys, Error Fetching Data");
+      }
+      else{
+        console.log("Fetching Data using API key "+j+1);
+      search(j);
+      }
+    }
+  }
+}
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
+
